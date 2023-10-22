@@ -67,7 +67,43 @@ void reconnect() {
 
     // Attempt to connect
     if (client.connect(clientId.c_str(), mqtt_username, mqtt_password)) {
-      Serial.println("MQTT connected");
+      Serial.println("MQTT connected");// Send auto-discovery message for sensor
+     
+      String t,m; 
+
+      t = "homeassistant/switch/mailbox/config";
+      m = "{\"device\":{\"ids\":[\"mailbox\"],\"name\":\"Mailbox\",\"mf\":\"PricelessToolkit\"},"
+          "\"name\": \"Mail\","
+          "\"icon\": \"mdi:mailbox\","
+          "\"device_class\": \"switch\","
+          "\"unique_id\": \"mailbox_sensor\","
+          "\"state_topic\": \"lora_gateway/mailbox/state\","
+          "\"command_topic\": \"lora_gateway/mailbox/state\","
+          "\"retain\":true}";
+      client.publish(t.c_str(), m.c_str(), retain);
+
+      t = "homeassistant/sensor/mailbox/rssi/config";
+      m = "{\"device\":{\"ids\":[\"mailbox\"],\"name\":\"Mailbox\",\"mf\":\"PricelessToolkit\"},"
+          "\"name\": \"RSSI\","
+          "\"device_class\": \"signal_strength\","
+          "\"unit_of_measurement\": \"dBm\","
+          "\"entity_category\": \"diagnostic\","
+          "\"unique_id\": \"mailbox_rssi\","
+          "\"state_topic\": \"lora_gateway/mailbox/rssi\","
+          "\"retain\":true}";
+      client.publish(t.c_str(), m.c_str(), retain);
+
+      t = "homeassistant/sensor/mailbox/battery/config";
+      m = "{\"device\":{\"ids\":[\"mailbox\"],\"name\":\"Mailbox\",\"mf\":\"PricelessToolkit\"},"
+          "\"name\": \"Battery\","
+          "\"device_class\": \"battery\","
+          "\"unit_of_measurement\": \"%\","
+          "\"entity_category\": \"diagnostic\","
+          "\"unique_id\": \"mailbox_battery\","
+          "\"state_topic\": \"lora_gateway/mailbox/battery\","
+          "\"retain\":true}";
+      client.publish(t.c_str(), m.c_str(), retain);
+
     } else {
       Serial.print("MQTT failed, rc=");
       Serial.print(client.state());
@@ -163,9 +199,9 @@ void loop() {
 
       if(received_code == NewMailCode) {
         String topic = "lora_gateway/" + NewMailName;
-        client.publish(topic + "/state", "ON", retain);
-        client.publish(topic + "/battery", bat_val.c_str(), retain);
-        client.publish(topic + "/rssi", rs.c_str(), retain);
+        client.publish((topic + "/state").c_str(), "ON", retain);
+        client.publish((topic + "/battery").c_str(), bat_val.c_str(), retain);
+        client.publish((topic + "/rssi").c_str(), rs.c_str(), retain);
       };
 
       client.endPublish();
