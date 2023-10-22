@@ -150,7 +150,7 @@ void setup() {
   LoRa.setCodingRate4(CodingRate);          // Supported values are between 5 and 8, these correspond to coding rates of 4/5 and 4/8. The coding rate numerator is fixed at 4.
   LoRa.setSyncWord(SyncWord);               // byte value to use as the sync word, defaults to 0x12
   LoRa.setPreambleLength(PreambleLength);   // Supported values are between 6 and 65535.
-  LoRa.disableCrc();                        // Enable or disable CRC usage, by default a CRC is not used LoRa.disableCrc();
+  LoRa.enableCrc();                        // Enable or disable CRC usage, by default a CRC is not used LoRa.disableCrc();
   LoRa.setTxPower(TxPower);                 // TX power in dB, defaults to 17, Supported values are 2 to 20
 
 }

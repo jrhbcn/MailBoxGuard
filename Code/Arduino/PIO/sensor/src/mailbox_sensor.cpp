@@ -40,7 +40,7 @@ void setup() {
   LoRa.setCodingRate4(CodingRate);        // Supported values are between 5 and 8, these correspond to coding rates of 4/5 and 4/8. The coding rate numerator is fixed at 4.
   LoRa.setSyncWord(SyncWord);                     // byte value to use as the sync word, defaults to 0x12
   LoRa.setPreambleLength(PreambleLength);       //Supported values are between 6 and 65535.
-  LoRa.disableCrc();                          // Enable or disable CRC usage, by default a CRC is not used LoRa.disableCrc();
+  LoRa.enableCrc();                          // Enable or disable CRC usage, by default a CRC is not used LoRa.disableCrc();
   LoRa.setTxPower(TxPower);                // TX power in dB, defaults to 17, Supported values are 2 to 20
   
 }
@@ -52,7 +52,7 @@ void loop() {
   Serial.println(volts);
   
 
-  if (loopcounter < 2){
+  if (loopcounter < 5){
     delay(50);
     LoRa.beginPacket();
     if(TransmitBattPercent){
@@ -64,8 +64,7 @@ void loop() {
       LoRa.print(NewMailCode);
     }
     LoRa.endPacket();
-    delay (10);
-
+    delay (50);
    }
 
   /*if (volts < 3.36 and loopcounter == 1 ){   // Don't change "3.36" !!
@@ -75,7 +74,7 @@ void loop() {
     delay(50);
   }*/
 
-  if(loopcounter > 2){
+  if(loopcounter > 5){
     //LoRa.end();  // Stop the LoRa library.
     LoRa.sleep();  // Put the radio in sleep mode
     digitalWrite(3, LOW); // Sets the Latch pin 3 LOW For power cut off
