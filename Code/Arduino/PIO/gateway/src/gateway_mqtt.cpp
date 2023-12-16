@@ -26,6 +26,21 @@ String received_code = "";
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#define SERIAL_DEBUG true
+#define MQTT_DEBUG true
+
+#if SERIAL_DEBUG 
+  #define BEGIN_DEBUG() do { Serial.begin (9600); } while (0)
+  #define TRACE(x)       Serial.print(x)
+  #define TRACELN(x)     Serial.println(x)
+#else
+  #define BEGIN_DEBUG()  ((void) 0)
+  #define TRACE(x)       ((void) 0)
+  #define TRACELN(x)     ((void) 0)
+#endif // SERIAL_DEBUG
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 String recv;
 int count = 0;
 
@@ -34,31 +49,28 @@ PubSubClient client(espClient);
 
 void setup_wifi() {
   delay(10);
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
+  TRACE("Connecting to "); TRACELN(ssid);
 
   WiFi.begin(ssid, password);
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
-    Serial.print(".");
+    TRACE(".");
   }
 
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
+  TRACELN(""); TRACELN("WiFi connected");
+  TRACE("IP address: "); TRACELN(WiFi.localIP());
 }
 
 void reconnect() {
+  int retries = 0;
   while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
+    TRACE("Attempting MQTT connection...");
     // Buffer needs to be increased to accomodate the config payloads
     if(client.setBufferSize(380)){
-    Serial.println("Buffer Size increased to 380 byte"); 
+    TRACELN("Buffer Size increased to 380 byte"); 
     }else{
-     Serial.println("Failed to allocate larger buffer");   
+     TRACELN("Failed to allocate larger buffer");   
      }
 
     // Create a random client ID
@@ -67,10 +79,48 @@ void reconnect() {
 
     // Attempt to connect
     if (client.connect(clientId.c_str(), mqtt_username, mqtt_password)) {
-      Serial.println("MQTT connected");// Send auto-discovery message for sensor
-     
+      TRACELN("MQTT connected"); 
+      // Send auto-discovery message for sensor
       String t,m; 
 
+      // LORA GATEWAY
+      String DEVICE_ID = "lora_gateway";
+      String DEVICE_NAME = "LoRa Gateway";
+
+      // RSSI
+      t = "homeassistant/sensor/" + DEVICE_ID + "/rssi/config";
+      m = "{\"device\":{\"ids\":[\"" + DEVICE_ID + "\"],\"name\":\"" + DEVICE_NAME + "\",\"manufacturer\":\"TTGO\"}," +
+          "\"name\": \"RSSI\"," + 
+          "\"device_class\": \"signal_strength\"," + 
+          "\"unit_of_measurement\": \"dBm\"," + 
+          "\"entity_category\": \"diagnostic\"," + 
+          "\"unique_id\": \"" + DEVICE_ID + "_rssi\"," + 
+          "\"state_topic\": \"lora_gateway/gateway/rssi\","
+          "\"force_update\": true," + 
+          "\"expire_after\": 90400," + 
+          "\"retain\": true}";
+      client.publish(t.c_str(), m.c_str(), retain);
+
+      // IP
+      t = "homeassistant/sensor/" + DEVICE_ID + "/ip/config";
+      m = "{\"device\":{\"ids\":[\"" + DEVICE_ID + "\"],\"name\":\"" + DEVICE_NAME + "\",\"manufacturer\":\"TTGO\"}," +
+          "\"name\": \"IP\"," + 
+          "\"entity_category\": \"diagnostic\"," + 
+          "\"unique_id\": \"" + DEVICE_ID + "_ip\"," + 
+          "\"state_topic\": \"lora_gateway/gateway/ip\","
+          "\"retain\": true}";
+      client.publish(t.c_str(), m.c_str(), true);
+
+      // RAW
+      t = "homeassistant/sensor/" + DEVICE_ID + "/raw/config";
+      m = "{\"device\":{\"ids\":[\"" + DEVICE_ID + "\"],\"name\":\"" + DEVICE_NAME + "\",\"manufacturer\":\"TTGO\"}," +
+          "\"name\": \"Raw\"," + 
+          "\"entity_category\": \"diagnostic\"," + 
+          "\"unique_id\": \"" + DEVICE_ID + "_raw\"," + 
+          "\"state_topic\": \"lora_gateway/gateway/raw\"";
+      client.publish(t.c_str(), m.c_str(), true);
+
+      // MAILBOX
       t = "homeassistant/switch/mailbox/config";
       m = "{\"device\":{\"ids\":[\"mailbox\"],\"name\":\"Mailbox\",\"mf\":\"PricelessToolkit\"},"
           "\"name\": \"Mail\","
@@ -104,45 +154,77 @@ void reconnect() {
           "\"retain\":true}";
       client.publish(t.c_str(), m.c_str(), retain);
 
+
+
     } else {
-      Serial.print("MQTT failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 1 seconds");
-      delay(1000);
+      TRACE("MQTT failed, rc="); TRACELN(client.state());
+      retries++;
+      TRACELN(" try again in 3 seconds");
+      delay(3000);
     }
+
+    if (retries > 10) {
+      display.clear();
+      display.setFont(ArialMT_Plain_16);
+      display.setTextAlignment(TEXT_ALIGN_CENTER);
+      display.drawString(64, 20, "RESTARTING");
+      display.display();
+      delay(2000);
+      ESP.restart();
+    }
+
   }
 }
 
+void mqtt_lora_gateway_update() {
+  String topic = "lora_gateway/gateway";
+  client.publish((topic + "/ip").c_str(), WiFi.localIP().toString().c_str(), retain);
+  client.publish((topic + "/rssi").c_str(), String(WiFi.RSSI()).c_str(), retain);
+}
+
+
 void setup() {
-  Serial.begin(9600);
-  while (!Serial);
+
+  BEGIN_DEBUG();
+
+  display.init();
+  display.flipScreenVertically();
+  display.setFont(ArialMT_Plain_10);
+  display.setTextAlignment(TEXT_ALIGN_CENTER);
+  display.drawString(64, 5, "STARTING WIFI");
+  display.setFont(ArialMT_Plain_16);
+  display.setTextAlignment(TEXT_ALIGN_CENTER);
+  display.drawString(64, 20, "LoRa Gateway");
+  display.drawString(64, 38, "RX " + String(BAND));
+  display.display();
+
 
   setup_wifi();
   client.setServer(mqtt_server, mqtt_port);
   reconnect();
   // client.setCallback(MQTTCallback);
 
-  display.init();
-
-  display.flipScreenVertically();
+  display.clear();
   display.setFont(ArialMT_Plain_10);
   display.setTextAlignment(TEXT_ALIGN_CENTER);
-  display.drawString(64, 5, "PricelessToolkit");
+  display.drawString(64, 5, "WIFI CONNECTED");
   display.setFont(ArialMT_Plain_16);
   display.setTextAlignment(TEXT_ALIGN_CENTER);
   display.drawString(64, 20, "LoRa Gateway");
   display.drawString(64, 38, "RX " + String(BAND));
   display.display();
+
   delay(2000);
   display.clear();
   display.display();
 
   SPI.begin(CONFIG_CLK, CONFIG_MISO, CONFIG_MOSI, CONFIG_NSS);
   LoRa.setPins(CONFIG_NSS, CONFIG_RST, CONFIG_DIO0);
-  Serial.println("Starting LoRa on " + String(BAND) + " MHz");
+  TRACELN("Starting LoRa on " + String(BAND) + " MHz");
+  delay(1000);
   if (!LoRa.begin(BAND)) {
-    Serial.println("Starting LoRa failed!");
-    while (1);
+    TRACELN("Starting LoRa failed!");
+    ESP.restart(); // while (1);
   }
 
   LoRa.setSignalBandwidth(SignalBandwidth); // signal bandwidth in Hz, defaults to 125E3
@@ -153,6 +235,9 @@ void setup() {
   LoRa.enableCrc();                        // Enable or disable CRC usage, by default a CRC is not used LoRa.disableCrc();
   LoRa.setTxPower(TxPower);                 // TX power in dB, defaults to 17, Supported values are 2 to 20
 
+  mqtt_lora_gateway_update();
+  client.endPublish();
+  
 }
 
 void parsePacket(String rawpkg){
@@ -188,11 +273,12 @@ void loop() {
       recv += (char)LoRa.read();
     }
 
-    Serial.println(recv);
+    TRACELN(recv);
     if (client.connected()) {
       String rs = String(LoRa.packetRssi());
       String p = "{\"code\": \"" + recv + "\",\"rssi\": " + rs + "}";
-      client.publish("lora_gateway/message", String(p).c_str(), retain);
+      client.publish("lora_gateway/gateway/raw", String(p).c_str(), retain);
+      mqtt_lora_gateway_update();
 
       // Parse message
       parsePacket(recv);
@@ -212,4 +298,9 @@ void loop() {
     reconnect();
   }
   client.loop();
+
+  if (millis() > 86400000) {
+    ESP.restart();
+  }
+
 }
