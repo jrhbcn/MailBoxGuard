@@ -27,7 +27,6 @@ String received_code = "";
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #define SERIAL_DEBUG true
-#define MQTT_DEBUG true
 
 #if SERIAL_DEBUG 
   #define BEGIN_DEBUG() do { Serial.begin (9600); } while (0)
@@ -42,7 +41,9 @@ String received_code = "";
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 String recv;
-int count = 0;
+
+unsigned long previous_millis = 0;
+unsigned long seconds = 0;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -108,6 +109,18 @@ void reconnect() {
           "\"entity_category\": \"diagnostic\"," + 
           "\"unique_id\": \"" + DEVICE_ID + "_ip\"," + 
           "\"state_topic\": \"lora_gateway/gateway/ip\","
+          "\"retain\": true}";
+      client.publish(t.c_str(), m.c_str(), true);
+
+      // uptime
+      t = "homeassistant/sensor/" + DEVICE_ID + "/uptime/config";
+      m = "{\"device\":{\"ids\":[\"" + DEVICE_ID + "\"],\"name\":\"" + DEVICE_NAME + "\",\"manufacturer\":\"TTGO\"}," +
+          "\"name\": \"Uptime\"," + 
+          "\"icon\": \"mdi:timer\","
+          "\"unit_of_measurement\": \"s\","
+          "\"entity_category\": \"diagnostic\"," + 
+          "\"unique_id\": \"" + DEVICE_ID + "_uptime\"," + 
+          "\"state_topic\": \"lora_gateway/gateway/uptime\","
           "\"retain\": true}";
       client.publish(t.c_str(), m.c_str(), true);
 
@@ -180,6 +193,7 @@ void mqtt_lora_gateway_update() {
   String topic = "lora_gateway/gateway";
   client.publish((topic + "/ip").c_str(), WiFi.localIP().toString().c_str(), retain);
   client.publish((topic + "/rssi").c_str(), String(WiFi.RSSI()).c_str(), retain);
+  client.publish((topic + "/uptime").c_str(), String(seconds).c_str(), retain);
 }
 
 
@@ -267,6 +281,30 @@ void parsePacket(String rawpkg){
 }
 
 void loop() {
+
+  unsigned long current_millis = millis();
+
+  // Increase the number of seconds
+  if (current_millis - previous_millis >= 1000) {
+    seconds++;
+    previous_millis = current_millis;
+    TRACE("Seconds = "); TRACELN(seconds);
+
+    // Every 10min pubish update
+    if ( (seconds % 600) == 0 ) {
+        mqtt_lora_gateway_update();
+        client.endPublish();
+        TRACELN("Publish update.");
+    }
+
+    // Every 24h reset
+    if ( (seconds % 86400) == 0 ) {
+      TRACELN("Restarting ...");
+      ESP.restart();
+    }
+
+  }
+
   if (LoRa.parsePacket()) {
     String recv = "";
     while (LoRa.available()) {
@@ -288,6 +326,7 @@ void loop() {
         client.publish((topic + "/state").c_str(), "ON", retain);
         client.publish((topic + "/battery").c_str(), bat_val.c_str(), retain);
         client.publish((topic + "/rssi").c_str(), rs.c_str(), retain);
+        client.publish((topic + "/uptime").c_str(), String(seconds).c_str(), retain);
       };
 
       client.endPublish();
