@@ -9,14 +9,16 @@
 //////////////////////////////////// CONFIG /////////////////////////////////////////////
 
 #define SignalBandwidth 125E3
-#define SpreadingFactor 12
-#define TransmitBattPercent 1
+#define SpreadingFactor 9
 #define CodingRate 8
 #define SyncWord 0xF3
 #define PreambleLength 8
 #define TxPower 20
 #define BAND 868E6     // frequency in Hz (ASIA 433E6, EU 868E6, US 915E6)
+
 String NewMailCode = "0xA2B2"; // For Example "0xA2B2";
+
+#define TransmitBattPercent 1
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
@@ -25,13 +27,13 @@ int loopcounter = 0;
 void setup() {
   pinMode(3, OUTPUT);
   digitalWrite(3, HIGH);
-  Serial.begin(9600);   //Pin6 RX Pin7 TX
+  //Serial.begin(9600);   //Pin6 RX Pin7 TX
   analogReference(VDD);
   delay (5);
 
 
   if (!LoRa.begin(BAND)) {
-    Serial.println("LoRaError");
+    //Serial.println("LoRaError");
     while (1);
   }
 
@@ -49,7 +51,7 @@ void setup() {
 void loop() {
 	
   float volts = analogReadEnh(PIN_PB4, 12)*(1.1/4096)*(30+10)/10;
-  Serial.println(volts);
+  //Serial.println(volts);
   
 
   if (loopcounter < 5){

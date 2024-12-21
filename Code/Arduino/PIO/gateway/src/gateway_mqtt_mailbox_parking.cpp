@@ -1,4 +1,4 @@
-#if 0
+#if 1
 
 #include "secrets.h"
 #include "board.h"
@@ -23,12 +23,15 @@ bool retain = true;
 String NewMailName = "mailbox";
 String NewMailCode = "0xA2B2"; // For Example "0xA2B2";
 
-String bat_val = "";
-String received_code = "";
+String GarageDoorName = "garagedoor";
+String GarageDoorCode = "A2C2"; // For Example "0xA2B2";
+String GarageDoorCodeVibrate = "A2C3";
+
+unsigned long wait_for_ack = 10; // seconds
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#define SERIAL_DEBUG false
+#define SERIAL_DEBUG true
 
 #if SERIAL_DEBUG 
   #define BEGIN_DEBUG() do { Serial.begin (9600); } while (0)
@@ -43,6 +46,9 @@ String received_code = "";
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 String recv;
+
+String bat_val = "";
+String received_code = "";
 
 unsigned long previous_millis = 0;
 unsigned long seconds = 0;
@@ -63,6 +69,48 @@ void setup_wifi() {
 
   TRACELN(""); TRACELN("WiFi connected");
   TRACE("IP address: "); TRACELN(WiFi.localIP());
+}
+
+bool waiting_for_ack = false;
+unsigned long seconds_ack = ULONG_MAX - 2*wait_for_ack;
+
+void mqtt_callback(char* topic, byte* payload, unsigned int length) {
+  
+  TRACE("MQTT Message arrived ["); TRACE(topic); TRACE("] ");
+  #if SERIAL_DEBUG
+    for (int i = 0; i < length; i++) {
+      TRACE((char)payload[i]);
+    }
+    TRACELN("");
+  #endif
+
+  if (strcmp(topic, "lora_gateway/garagedoor/state") == 0) 
+  {
+    
+    if ( strncmp((char*)payload, "ON",length) == 0 ) 
+    {
+      TRACELN("Garagedoor command received, sending LoRa message");
+      // Send LoRa message to sensor
+      int loopcounter = 0;
+      LoRa.enableInvertIQ();
+      if (loopcounter < 4) 
+      {
+        LoRa.beginPacket();
+        LoRa.print(GarageDoorCode);
+        LoRa.endPacket();
+        delay (1);
+        loopcounter++;
+      }
+      LoRa.disableInvertIQ();
+
+      // Wait for ACK from sensor in loop()
+      waiting_for_ack = true;
+      seconds_ack = seconds;
+
+    }
+
+  }
+
 }
 
 void mqtt_reconnect() {
@@ -165,11 +213,60 @@ void mqtt_reconnect() {
           "\"unit_of_measurement\": \"%\","
           "\"entity_category\": \"diagnostic\","
           "\"unique_id\": \"mailbox_battery\","
+          "\"force_update\": true,"
           "\"state_topic\": \"lora_gateway/mailbox/battery\","
           "\"retain\":true}";
       client.publish(t.c_str(), m.c_str(), retain);
 
+      // GARAGEDOOR
+      t = "homeassistant/switch/garagedoor/config";
+      m = "{\"device\":{\"ids\":[\"garagedoor\"],\"name\":\"garagedoor\",\"mf\":\"jrhbcn\"},"
+          "\"name\": \"GarageDoor\","
+          "\"icon\": \"mdi:garage\","
+          "\"device_class\": \"switch\","
+          "\"unique_id\": \"garagedoor_sensor\","
+          "\"state_topic\": \"lora_gateway/garagedoor/state\","
+          "\"command_topic\": \"lora_gateway/garagedoor/state\","
+          "\"retain\":true}";
+      client.publish(t.c_str(), m.c_str(), retain);
 
+      t = "homeassistant/sensor/garagedoor/rssi/config";
+      m = "{\"device\":{\"ids\":[\"garagedoor\"],\"name\":\"garagedoor\",\"mf\":\"jrhbcn\"},"
+          "\"name\": \"RSSI\","
+          "\"device_class\": \"signal_strength\","
+          "\"unit_of_measurement\": \"dBm\","
+          "\"entity_category\": \"diagnostic\","
+          "\"unique_id\": \"garagedoor_rssi\","
+          "\"force_update\": true,"
+          "\"state_topic\": \"lora_gateway/garagedoor/rssi\","
+          "\"retain\":true}";
+      client.publish(t.c_str(), m.c_str(), retain);
+
+      t = "homeassistant/sensor/garagedoor/battery/config";
+      m = "{\"device\":{\"ids\":[\"garagedoor\"],\"name\":\"garagedoor\",\"mf\":\"jrhbcn\"},"
+          "\"name\": \"Battery\","
+          "\"device_class\": \"battery\","
+          "\"unit_of_measurement\": \"%\","
+          "\"entity_category\": \"diagnostic\","
+          "\"unique_id\": \"garagedoor_battery\","
+          "\"force_update\": true,"
+          "\"state_topic\": \"lora_gateway/garagedoor/battery\","
+          "\"retain\":true}";
+      client.publish(t.c_str(), m.c_str(), retain);
+
+      t = "homeassistant/binary_sensor/garagedoor/vibrate/config";
+      m = "{\"device\":{\"ids\":[\"garagedoor\"],\"name\":\"garagedoor\",\"mf\":\"jrhbcn\"},"
+          "\"name\": \"Vibrate\","
+          "\"device_class\": \"vibration\","
+          "\"entity_category\": \"diagnostic\","
+          "\"unique_id\": \"garagedoor_vibrate\","
+          "\"state_topic\": \"lora_gateway/garagedoor/vibrate\","
+          "\"retain\":false}";
+      client.publish(t.c_str(), m.c_str(), retain);
+
+      // Subscribe to garage door state
+      client.subscribe("lora_gateway/garagedoor/state");
+      client.setCallback(mqtt_callback);
 
     } else {
       TRACE("MQTT failed, rc="); TRACELN(client.state());
@@ -218,7 +315,6 @@ void setup() {
   setup_wifi();
   client.setServer(mqtt_server, mqtt_port);
   mqtt_reconnect();
-  // client.setCallback(MQTTCallback);
 
   display.clear();
   display.setFont(ArialMT_Plain_10);
@@ -236,7 +332,7 @@ void setup() {
 
   SPI.begin(CONFIG_CLK, CONFIG_MISO, CONFIG_MOSI, CONFIG_NSS);
   LoRa.setPins(CONFIG_NSS, CONFIG_RST, CONFIG_DIO0);
-  TRACELN("Starting LoRa on " + String(BAND) + " MHz");
+  TRACELN("Starting LoRa on " + String(BAND/1000/1000) + " MHz");
   delay(1000);
   if (!LoRa.begin(BAND)) {
     TRACELN("Starting LoRa failed!");
@@ -275,7 +371,7 @@ void parsePacket(String rawpkg){
     bat_val = "UNDEFINED";
    } else {
     // "Converts" float to int - For cosmetic reasons. Modify, if desired
-    bat_val=rawpkg.substring(i+1);
+    bat_val = rawpkg.substring(i+1);
     intconv = bat_val.toFloat() + 0;
     bat_val = String(intconv);
    }
@@ -290,21 +386,35 @@ void loop() {
   if (current_millis - previous_millis >= 1000) {
     seconds += (current_millis - previous_millis)/1000;
     previous_millis = current_millis;
-    TRACE("Seconds = "); TRACELN(seconds);
+    //TRACE("Seconds = "); TRACELN(seconds);
 
     // Every 1h publish update
-    if ( (seconds % 3600) == 0 ) {
+    if ( (seconds % 3601) == 0 ) {
         mqtt_lora_gateway_update();
         client.endPublish();
         TRACELN("Publish update.");
     }
 
     // Every 24h reset
-    if ( (seconds % 86400) == 0 ) {
+    if ( (seconds % 86401) == 0 ) {
       TRACELN("Restarting ...");
       ESP.restart();
     }
 
+  }
+
+  if (waiting_for_ack)
+  {
+    if (seconds > seconds_ack + wait_for_ack ) 
+    {
+      TRACELN("Waiting for ACK for more than 10 seconds!!!!");
+      //publish error
+      String topic = "lora_gateway/garagedoor";
+      client.publish((topic + "/error").c_str(), "1", false);
+      client.endPublish();
+      waiting_for_ack = false;
+      seconds_ack = ULONG_MAX - 2*wait_for_ack;
+    }
   }
 
   if (LoRa.parsePacket()) {
@@ -314,42 +424,57 @@ void loop() {
     }
 
     TRACELN(recv);
-    if (client.connected()) {
-      String rs = String(LoRa.packetRssi());
-      String p = "{\"code\": \"" + recv + "\",\"rssi\": " + rs + "}";
-      client.publish("lora_gateway/gateway/raw", String(p).c_str(), retain);
-      mqtt_lora_gateway_update();
 
-      // Parse message
-      parsePacket(recv);
+    // Parse message
+    parsePacket(recv);
 
-      if(received_code == NewMailCode) {
-        String topic = "lora_gateway/" + NewMailName;
-        client.publish((topic + "/state").c_str(), "ON", retain);
+    String rs = String(LoRa.packetRssi());
+    String p = "{\"code\": \"" + recv + "\",\"rssi\": " + rs + "}";
+
+    if(received_code == GarageDoorCode) 
+    {
+      String topic = "lora_gateway/" + GarageDoorName;
+      client.publish((topic + "/state").c_str(), "OFF", retain);
+      if (bat_val != "UNDEFINED") {
         client.publish((topic + "/battery").c_str(), bat_val.c_str(), retain);
-        client.publish((topic + "/rssi").c_str(), rs.c_str(), retain);
-        client.publish((topic + "/uptime").c_str(), String(seconds).c_str(), retain);
-      };
+      }
+      client.publish((topic + "/rssi").c_str(), rs.c_str(), retain);
+      waiting_for_ack = false;
+    };
+    client.endPublish();
 
-      client.endPublish();
-    }
+    if(received_code == GarageDoorCodeVibrate) 
+    {
+      String topic = "lora_gateway/" + GarageDoorName;
+      client.publish((topic + "/vibrate").c_str(), "ON", false);
+      client.publish((topic + "/rssi").c_str(), rs.c_str(), retain);
+    };
+    client.endPublish();
+
+    if(received_code == NewMailCode) {
+      String topic = "lora_gateway/" + NewMailName;
+      client.publish((topic + "/state").c_str(), "ON", retain);
+      if (bat_val != "UNDEFINED") {
+        client.publish((topic + "/battery").c_str(), bat_val.c_str(), retain);
+      }
+      client.publish((topic + "/rssi").c_str(), rs.c_str(), retain);
+    };
+
+    client.publish("lora_gateway/gateway/raw", String(p).c_str(), retain);
+    mqtt_lora_gateway_update();
+    client.endPublish();
   }
 
   // Check if wifi is connected
-  //if (WiFi.status() != WL_CONNECTED) {
-  //  setup_wifi();
-  //}
+  if (WiFi.status() != WL_CONNECTED) {
+    setup_wifi();
+  }
 
   // Reconnect to MQTT if connection is lost
   if (!client.connected()) {
     mqtt_reconnect();
   }
   client.loop();
-
-  // Restart every 24h
-  if (millis() > 86400000) {
-    ESP.restart();
-  }
 
 }
 
